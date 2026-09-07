@@ -56,9 +56,8 @@ def get_policy(
     Implementation notes:
         agent.helpcenter.load_policy_docs() returns every parsed doc.
     """
-    all_policies = load_policy_docs()
-    for doc in all_policies:
-        if doc.policy_id == policy_id:  # this is ok because the policy_docs are unqiue
+    for doc in load_policy_docs():
+        if doc.policy_id == policy_id:
             return {
                 "ok": True,
                 "policy_id": doc.policy_id,
@@ -113,7 +112,6 @@ def search_products(
         Open the database with agent.db.connect() and close it when done.
     """
 
-    # handling inproper inputs and return early, no db load
     query = query.strip()
     if not query:
         return {
@@ -134,28 +132,26 @@ def search_products(
         return {
             "ok": False,
             "error": "invalid_argument",
-            "reason": "max_price_usd cannot be less then are equal to zero",
+            "reason": "max_price_usd must be strictly positive",
         }
     if max_price_usd is None:
         max_price_usd = math.inf
 
     limit = max(1, min(limit, MAX_SEARCH_LIMIT))
-
     tokens = [t.lower() for t in query.split()]
 
-    # opening a connection to the db using a contextmanager
     with db.connect() as conn:
-        if isinstance(store, str):
-            store = db.get_store_by_name(conn, name=store)
-            if store is None:
+        store_id = None
+        if store:
+            match = db.get_store_by_name(conn, name=store)
+            if match is None:
                 return {
                     "ok": False,
                     "error": "not_found",
                     "reason": f"No store found for {store!r}",
                 }
-            store = store.id
-
-        products = db.list_products(conn, store_id=store)
+            store_id = match.id
+        products = db.list_products(conn, store_id=store_id)
 
     matches = []
     for p in products:
@@ -213,31 +209,24 @@ def list_my_orders(ctx: AuthContext) -> dict[str, Any]:
             "reason": "support staff have no orders of their own and look up specific orders with get_order instead",
         }
 
-    # list all orders for shoppers
     with db.connect() as conn:
         if ctx.role == "shopper":
-            user_orders = db.list_orders_for_user(
+            orders = db.list_orders_for_user(
                 conn=conn,
                 user_id=ctx.user_id,
                 limit=DEFAULT_ORDER_LIMIT,
             )
-            user_orders = [o.to_public_dict() for o in user_orders]
-            return {
-                "ok": True,
-                "orders": user_orders,
-                "count": len(user_orders),
-            }
-        elif ctx.role == "merchant":
-            store_orders = db.list_orders_for_store(
+        else:
+            orders = db.list_orders_for_store(
                 conn=conn,
                 store_id=ctx.store_id,
                 limit=DEFAULT_ORDER_LIMIT,
             )
-        store_orders = [o.to_public_dict() for o in store_orders]
+        orders = [o.to_public_dict() for o in orders]
         return {
             "ok": True,
-            "orders": store_orders,
-            "count": len(store_orders),
+            "orders": orders,
+            "count": len(orders),
         }
 
 
