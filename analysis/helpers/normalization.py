@@ -79,24 +79,8 @@ def _observation_record(value: Any) -> dict[str, Any] | None:
 
 
 def _metadata(record: dict[str, Any]) -> dict[str, Any]:
-    """Return trace metadata with nested OpenTelemetry attributes merged in.
-
-    Langfuse stores span attributes under ``metadata.attributes`` (a JSON
-    string in ClickHouse, a dict from the API). Top level keys win when both
-    are present.
-    """
     metadata = _data(record.get("metadata"))
-    if not isinstance(metadata, dict):
-        return {}
-    attributes = metadata.get("attributes")
-    if isinstance(attributes, str):
-        try:
-            attributes = json.loads(attributes)
-        except ValueError:
-            attributes = None
-    merged = dict(attributes) if isinstance(attributes, dict) else {}
-    merged.update(metadata)
-    return merged
+    return dict(metadata) if isinstance(metadata, dict) else {}
 
 
 def _observation_message(observation: Any) -> list[dict[str, Any]]:

@@ -38,7 +38,7 @@ from opentelemetry import trace
 from pydantic import BaseModel
 
 from agent import db
-from agent.agent import build_agent, prompt_version
+from agent.agent import build_agent, prompt_version, render_system_prompt
 from agent.auth import ROLES, AuthContext
 from agent.config import REPO_ROOT, db_path
 from observability.instrument import load_env, setup_tracing
@@ -123,8 +123,36 @@ def create_session(body: SessionCreate) -> dict[str, Any]:
     session id and a signed token. The token payload must contain session_id,
     user_id, role, store_id, and issued_at.
     """
-    ### YOUR CODE HERE (HW2)
-    raise NotImplementedError("HW2: implement POST /sessions")
+    if body.role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"unknown role: {body.role!r}")
+
+    conn = db.connect()
+    try:
+        user = db.get_user(conn, body.user_id)
+    finally:
+        conn.close()
+    if user is None:
+        raise HTTPException(status_code=404, detail=f"unknown user: {body.user_id}")
+    if user.role != body.role:
+        raise HTTPException(
+            status_code=403,
+            detail=f"user {user.id} has role '{user.role}', not '{body.role}'",
+        )
+
+    ctx = AuthContext(user_id=user.id, role=user.role, store_id=user.store_id)
+    session_id = uuid.uuid4().hex
+    sqlite_session = SQLiteSession(session_id, str(SESSIONS_DB))
+    _SESSIONS[session_id] = (ctx, sqlite_session)
+    token = create_token(
+        {
+            "session_id": session_id,
+            "user_id": user.id,
+            "role": user.role,
+            "store_id": ctx.store_id,
+            "issued_at": int(time.time()),
+        }
+    )
+    return {"session_id": session_id, "token": token}
 
 
 def _authorize(session_id: str, authorization: str | None) -> AuthContext:
@@ -149,17 +177,35 @@ async def post_message(
     """Run one authenticated conversation turn inside a root trace span.
 
     Authorize the token, recover the server-side session, and build the agent
-    for the authenticated context. Hash only the system prompt template.
+    for the authenticated context. Compute the rendered prompt's version.
     The cartwheel.session_message span must record the user role, user id,
     prompt version, and a nonempty scenario id when one is supplied. Run the
     agent inside that span, then return the session id, final reply, and
     prompt version.
-    When TRACELOOP_TRACE_CONTENT is true, record gen_ai.input.messages and
-    gen_ai.output.messages on the root span as JSON arrays of OTel GenAI
-    messages with role and parts fields.
     """
-    ### YOUR CODE HERE (HW2)
-    raise NotImplementedError("HW2: implement the traced message endpoint")
+    ctx = _authorize(session_id, authorization)
+    session = _SESSIONS[session_id][1]
+    rendered_prompt = render_system_prompt(ctx)
+    version = prompt_version(rendered_prompt)
+
+    with _tracer.start_as_current_span("cartwheel.session_message") as span:
+        if span.is_recording():
+            span.set_attribute("cartwheel.user_role", ctx.role)
+            span.set_attribute("cartwheel.user_id", str(ctx.user_id))
+            span.set_attribute("cartwheel.prompt_version", version)
+            if body.scenario_id:
+                span.set_attribute("cartwheel.scenario_id", body.scenario_id)
+
+        agent = build_agent(ctx, model=body.model)
+        result = await Runner.run(
+            agent, body.message, session=session, context=ctx, max_turns=MAX_TURNS
+        )
+
+    return {
+        "session_id": session_id,
+        "reply": result.final_output,
+        "prompt_version": version,
+    }
 
 
 @app.get("/health")

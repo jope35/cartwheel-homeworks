@@ -51,8 +51,11 @@ def resolve_support(user_id: int | None) -> AuthContext:
     support-only in code, and this refuses a non-support user id up front so
     the operator gets a clear message instead of a per-refund denial.
     """
-    with db.connection() as conn:
+    conn = db.connect()
+    try:
         user = db.get_user(conn, user_id if user_id is not None else DEFAULT_SUPPORT_USER)
+    finally:
+        conn.close()
     if user is None:
         raise SystemExit(f"no such user id: {user_id}")
     if user.role != "support":
@@ -87,7 +90,8 @@ def review_queue(operator: AuthContext) -> None:
     control; the code below it (``approve_refund`` / ``reject_refund``) is what
     actually authorizes and audits. Do not bypass those functions.
     """
-    with db.connection() as conn:
+    conn = db.connect()
+    try:
         ensure_approvals_table(conn)
         ### YOUR CODE HERE (m4)
         raise NotImplementedError(
@@ -95,6 +99,8 @@ def review_queue(operator: AuthContext) -> None:
             "record, prompt for a decision and reason, and call approve_refund / "
             "reject_refund)"
         )
+    finally:
+        conn.close()
 
 
 def main() -> None:

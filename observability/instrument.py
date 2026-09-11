@@ -2,10 +2,10 @@
 
 `setup_tracing()` is the whole course stack: the Langfuse client reads
 LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, and LANGFUSE_HOST from the
-environment and registers an OpenTelemetry tracer provider.
-OpenLLMetry's OpenAI Agents integration records agent, model, and tool spans
-using OTel GenAI attributes. Students add request spans,
-auth context and permission-denied results as span
+environment and registers an OpenTelemetry tracer provider, and the
+OpenInference instrumentor makes the Agents SDK emit spans through it. That
+is the promised ~3 lines. Everything else in this file is the one seam
+students hand-roll: auth context and permission-denied events as span
 attributes (the `cartwheel.*` namespace from the Module 1 outline,
 Artifact G).
 """
@@ -17,8 +17,6 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agents.tracing import set_trace_processors
-from agents.tracing.processors import default_processor
 from opentelemetry import trace
 
 if TYPE_CHECKING:
@@ -88,8 +86,8 @@ def load_env(path: Path | None = None) -> None:
             os.environ.setdefault(key, value)
 
 
-def setup_tracing() -> bool:
-    """Install Langfuse tracing; return False when credentials are missing."""
+def setup_tracing() -> None:
+    """Instrument the Agents SDK and ship spans to self-hosted Langfuse."""
     load_env()
     if not os.environ.get("LANGFUSE_PUBLIC_KEY"):
         log.warning(
@@ -97,28 +95,29 @@ def setup_tracing() -> bool:
             "(docker compose -f observability/docker-compose.yml up -d) and "
             "copy .env.example to .env."
         )
-        return False
+        return
+    # The course setup, as promised: about three lines.
     from langfuse import get_client
+    from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
     get_client()  # registers the OTel tracer provider from LANGFUSE_* env vars
-    instrument_genai(trace.get_tracer_provider())
-    # Preserve processor replacement for callers such as the server, which
-    # ignore our return value. A missing secret makes Langfuse a no-op client;
-    # returning before replacement would leave hosted OpenAI export active.
-    if not os.environ.get("LANGFUSE_SECRET_KEY"):
-        return False
+    OpenAIAgentsInstrumentor().instrument()
     log.info("tracing enabled; spans go to %s", os.environ.get("LANGFUSE_HOST"))
-    return True
 
 
-def record_tool_result(ctx: "AuthContext", result: dict[str, Any]) -> None:
-    """Add authenticated identity and permission attributes to the active tool span.
+def record_tool_result(
+    ctx: "AuthContext", tool_name: str, result: dict[str, Any]
+) -> None:
+    """Attach auth context and permission-denied attributes to the trace.
 
-    OpenLLMetry creates the tool span and records its name, arguments, and
-    result. The tool wrappers call this helper before that span ends.
-    Add the caller's user_role and string user_id, plus the integer store_id
-    for merchants, then record the permission decision with the helper below.
-    When tracing is off, the active span is non-recording and this is a no-op.
+    Called by every tool wrapper in agent/agent.py after the tool logic runs.
+    It emits one small child span (named "cartwheel.tool_result") under the
+    current trace carrying the `cartwheel.*` attributes, so Module 2 can
+    query who the caller was and Module 4 can find every permission denial.
+
+    If tracing is not configured, the span is non-recording and this function
+    remains a no-op. The early return keeps the uninstrumented agent usable
+    before Homework 2 is complete.
     """
     with _tracer.start_as_current_span("cartwheel.tool_result") as span:
         if not span.is_recording():
@@ -132,7 +131,7 @@ def record_tool_result(ctx: "AuthContext", result: dict[str, Any]) -> None:
 
 
 def _set_permission_denied_attributes(span: trace.Span, result: dict[str, Any]) -> None:
-    """Set the permission-denied attributes on a tool span.
+    """Set the permission-denied attributes on a tool-result span.
 
     Contract (Module 1 outline, Artifact G):
       - `result` is the structured dict a tool returned (see agent/auth.py
