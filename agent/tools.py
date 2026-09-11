@@ -216,7 +216,7 @@ def list_my_orders(ctx: AuthContext) -> dict[str, Any]:
                 user_id=ctx.user_id,
                 limit=DEFAULT_ORDER_LIMIT,
             )
-        else:
+        elif ctx.store_id is not None:
             orders = db.list_orders_for_store(
                 conn=conn,
                 store_id=ctx.store_id,
@@ -287,9 +287,7 @@ def cancel_order(ctx: AuthContext, order_id: int, reason: str) -> dict[str, Any]
             order_user_id=order.user_id,
             order_store_id=order.store_id,
         ):
-            return permission_denied(
-                f"{ctx.role} cannot cancel order {order_id}"
-            )
+            return permission_denied(f"{ctx.role} cannot cancel order {order_id}")
 
         if order.status != "placed":
             return {

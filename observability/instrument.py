@@ -66,6 +66,25 @@ def setup_tracing() -> None:
     log.info("tracing enabled; spans go to %s", os.environ.get("LANGFUSE_HOST"))
 
 
+def setup_mlflow_tracing() -> None:
+    """Record the session's model and tool calls as MLflow traces (HW1 Part B).
+
+    Writes to the local ``mlflow.db`` store under the ``hw1-part-b`` experiment
+    that scripts/setup_review_queue.py reads. ``mlflow.openai.autolog()`` covers
+    the OpenAI Agents SDK (including its tool calls); ``mlflow.litellm.autolog()``
+    covers the non-OpenAI course models routed through LiteLLM. View traces with
+    ``uv run mlflow ui --backend-store-uri sqlite:///mlflow.db``.
+    """
+    load_env()
+    import mlflow
+
+    mlflow.set_tracking_uri(f"sqlite:///{REPO_ROOT / 'mlflow.db'}")
+    mlflow.set_experiment("hw1-part-b")
+    mlflow.openai.autolog()
+    mlflow.litellm.autolog()
+    log.info("MLflow tracing enabled; traces go to %s", mlflow.get_tracking_uri())
+
+
 def record_tool_result(
     ctx: "AuthContext", tool_name: str, result: dict[str, Any]
 ) -> None:

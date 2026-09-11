@@ -33,7 +33,7 @@ from agent import db
 from agent.agent import build_agent, prompt_version, render_system_prompt
 from agent.auth import AuthContext
 from agent.config import REPO_ROOT
-from observability.instrument import load_env, setup_tracing
+from observability.instrument import load_env, setup_mlflow_tracing, setup_tracing
 
 DEFAULT_USERS = {"shopper": 1, "merchant": 9001, "support": 9501}
 MAX_TURNS = 12  # cap runaway loops; keeps conversations bounded
@@ -138,6 +138,11 @@ def main() -> None:
         "--trace", action="store_true", help="ship spans to Langfuse (Lecture 2)"
     )
     parser.add_argument(
+        "--mlflow",
+        action="store_true",
+        help="log MLflow traces of this session to ./mlflow.db (HW1 Part B)",
+    )
+    parser.add_argument(
         "--defenses",
         action="store_true",
         help="turn on the Module 4 guards and the refund approval pause (Homework 8)",
@@ -147,6 +152,8 @@ def main() -> None:
     load_env()
     if args.trace:
         setup_tracing()
+    if args.mlflow:
+        setup_mlflow_tracing()
     ctx = resolve_auth(args.role, args.user)
     asyncio.run(chat(ctx, args.model, defenses=args.defenses))
 

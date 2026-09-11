@@ -12,6 +12,10 @@ data/cartwheel.db
 scenarios/results/
 replay/results/
 
+# MLflow traces (HW1 Part B). View with: uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
+mlruns/
+mlflow.db
+
 # Python
 __pycache__/
 *.pyc
