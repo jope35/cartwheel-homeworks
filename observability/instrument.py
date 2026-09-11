@@ -17,6 +17,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agents.tracing import set_trace_processors
+from agents.tracing.processors import default_processor
 from opentelemetry import trace
 
 if TYPE_CHECKING:
@@ -24,6 +26,8 @@ if TYPE_CHECKING:
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 log = logging.getLogger("cartwheel.instrument")
+
+_tracer = trace.get_tracer("cartwheel")
 
 _genai_instrumented = False
 _openai_tracing_enabled = False
