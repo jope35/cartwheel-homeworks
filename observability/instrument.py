@@ -83,10 +83,12 @@ def record_tool_result(
     with _tracer.start_as_current_span("cartwheel.tool_result") as span:
         if not span.is_recording():
             return
-        ### YOUR CODE HERE (HW2)
-        raise NotImplementedError(
-            "HW2: record the tool name, authenticated caller, and denial attributes"
-        )
+        span.set_attribute("gen_ai.tool.name", tool_name)
+        span.set_attribute("cartwheel.user_role", ctx.role)
+        span.set_attribute("cartwheel.user_id", str(ctx.user_id))
+        if ctx.store_id is not None:
+            span.set_attribute("cartwheel.store_id", ctx.store_id)
+        _set_permission_denied_attributes(span, result)
 
 
 def _set_permission_denied_attributes(
@@ -110,5 +112,7 @@ def _set_permission_denied_attributes(
     the smoke report counts them and Module 3 asserts on them. This is the one place in the
     course where you touch instrumentation by hand.
     """
-    ### YOUR CODE HERE (HW2)
-    raise NotImplementedError("HW2: set the cartwheel.permission_denied span attribute")
+    denied = result.get("error") == "permission_denied"
+    span.set_attribute("cartwheel.permission_denied", denied)
+    if denied:
+        span.set_attribute("cartwheel.permission_denied.reason", result.get("reason", ""))
